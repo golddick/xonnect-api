@@ -1,5 +1,5 @@
 const { ZodError } = require("zod");
-const { Prisma } = require("@prisma/client");
+const { Prisma } = require("../generated/prisma");
 
 function notFound(req, res) {
   res.status(404).json({ error: `Route not found: ${req.method} ${req.originalUrl}` });
@@ -24,6 +24,11 @@ function errorHandler(err, req, res, next) {
     if (err.code === "P2003") {
       return res.status(400).json({ error: "Related record not found" });
     }
+  }
+
+  if (err instanceof Prisma.PrismaClientInitializationError) {
+    console.error("Prisma database initialization failed:", err.message);
+    return res.status(503).json({ error: "Database unavailable" });
   }
 
   console.error(err);
