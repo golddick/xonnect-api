@@ -90,8 +90,7 @@ model Profile {
   email     String  @unique
   role      Role    @default(USER)
   fullName  String? @map("full_name")
-  firstName String? @map("first_name")
-  lastName  String? @map("last_name")
+  coverImgUrl String? @map("cover_img_url")
   avatarUrl String? @map("avatar_url")
   creatorName String? @map("creator_name")
   bio       String?

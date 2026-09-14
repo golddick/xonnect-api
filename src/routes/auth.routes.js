@@ -108,10 +108,13 @@ router.post(
     const valid = await bcrypt.compare(password, profile.credential.passwordHash);
     if (!valid) throw new HttpError(401, "Invalid email or password");
 
-    await prisma.profile.update({ where: { id: profile.id }, data: { lastLogin: new Date() } });
+    const updatedProfile = await prisma.profile.update({
+      where: { id: profile.id },
+      data: { lastLogin: new Date() },
+    });
 
     const token = signAuthToken({ sub: profile.id, email: profile.email });
-    res.json({ token, user: toPublicProfile(profile) });
+    res.json({ token, user: toPublicProfile(updatedProfile) });
   })
 );
 

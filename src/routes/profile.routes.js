@@ -8,8 +8,7 @@ const router = express.Router();
 
 const updateSchema = z.object({
   fullName: z.string().min(1).optional(),
-  firstName: z.string().optional(),
-  lastName: z.string().optional(),
+  coverImgUrl: z.string().url().optional(),
   avatarUrl: z.string().url().optional(),
   bio: z.string().max(500).optional(),
   website: z.string().url().optional(),
