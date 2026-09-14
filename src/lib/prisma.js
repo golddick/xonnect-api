@@ -1,4 +1,4 @@
-const { PrismaClient } = require("@prisma/client");
+const { PrismaClient } = require("../generated/prisma");
 
 // Reuse a single PrismaClient instance across hot reloads / requests.
 const globalForPrisma = globalThis;
