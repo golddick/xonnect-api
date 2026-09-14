@@ -6,6 +6,7 @@ const { asyncHandler, requireAuth } = require("../middleware/auth");
 const { HttpError } = require("../middleware/errorHandler");
 const { signAuthToken, id } = require("../utils/tokens");
 const dropaphi = require("../lib/dropaphi");
+const { dropid } = require("dropid");
 
 const router = express.Router();
 
@@ -26,7 +27,7 @@ router.post(
     if (existing) throw new HttpError(409, "An account with this email already exists");
 
     const passwordHash = await bcrypt.hash(password, 10);
-    const profileId = id("usr");
+    const profileId = dropid("usr");
 
     const profile = await prisma.profile.create({
       data: {
