@@ -35,7 +35,7 @@ router.post(
         email: normalizedEmail,
         fullName,
         hasPassword: true,
-        credential: { create: { email: normalizedEmail, passwordHash } },
+        credential: { create: { passwordHash } },
       },
     });
 
