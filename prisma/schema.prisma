@@ -207,7 +207,7 @@ model Category {
 
 model Creator {
   id        String  @id
-  profile   Profile @relation(fields: [profileId], references: [email], onDelete: Cascade)
+  profile   Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
   profileId String  @unique @map("profile_id")
 
   createdAt DateTime @default(now()) @map("created_at")
