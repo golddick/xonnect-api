@@ -4,12 +4,208 @@
 const express = require("express");
 const { z } = require("zod");
 const prisma = require("../lib/prisma");
-const { asyncHandler, requireAuth, requireCreator } = require("../middleware/auth");
+const { asyncHandler, requireAuth, optionalAuth, requireCreator } = require("../middleware/auth");
 const { HttpError } = require("../middleware/errorHandler");
 const paystack = require("../lib/paystack");
 const { dropid } = require("dropid");
 
 const router = express.Router();
+
+function serializePublicTicketEvent(event) {
+  const tickets = (event.tickets || [])
+    .map((ticket) => {
+      const remaining = Math.max((ticket.quantity || 0) - (ticket.soldCount || 0), 0);
+      const access = String(ticket.access || "STREAM").toUpperCase() === "VENUE" ? "VENUE" : "STREAM";
+
+      return {
+        id: ticket.id,
+        ticketType: ticket.ticketType,
+        access,
+        price: ticket.price || 0,
+        quantity: ticket.quantity || 0,
+        soldCount: ticket.soldCount || 0,
+        revenue: ticket.revenue || 0,
+        description: ticket.description || null,
+        benefits: Array.isArray(ticket.benefits) ? ticket.benefits.map(String) : [],
+        status: ticket.status || "ACTIVE",
+        remaining,
+        isSoldOut: remaining <= 0 || String(ticket.status || "").toUpperCase() === "SOLD_OUT",
+      };
+    })
+    .sort((left, right) => (left.access === "VENUE" ? -1 : 1) - (right.access === "VENUE" ? -1 : 1) || left.price - right.price);
+
+  const prices = tickets.map((ticket) => ticket.price).filter(Number.isFinite);
+  const hasVenue = tickets.some((ticket) => ticket.access === "VENUE");
+  const hasStream = tickets.some((ticket) => ticket.access === "STREAM");
+
+  return {
+    id: event.id,
+    title: event.title,
+    description: event.description || null,
+    category: event.category || "general",
+    status: event.status || "SCHEDULED",
+    scheduledAt: event.scheduledAt ? new Date(event.scheduledAt).toISOString() : null,
+    timezone: event.timezone || "Africa/Lagos",
+    address: event.address || null,
+    locationName: event.locationName || null,
+    locationFullAddress: event.locationFullAddress || null,
+    locationCountry: event.locationCountry || null,
+    locationState: event.locationState || null,
+    locationType: event.locationType || null,
+    thumbnailUrl: event.thumbnailUrl || null,
+    thumbnailVideoUrl: event.thumbnailVideoUrl || null,
+    creator: {
+      id: event.creator?.id || "",
+      fullName: event.creator?.profile?.fullName || event.creator?.profile?.creatorName || "Creator",
+      avatarUrl: event.creator?.profile?.avatarUrl || null,
+    },
+    tickets,
+    ticketCount: tickets.length,
+    totalSold: tickets.reduce((sum, ticket) => sum + ticket.soldCount, 0),
+    totalCapacity: tickets.reduce((sum, ticket) => sum + ticket.quantity, 0),
+    minPrice: prices.length ? Math.min(...prices) : 0,
+    maxPrice: prices.length ? Math.max(...prices) : 0,
+    totalRevenue: tickets.reduce((sum, ticket) => sum + ticket.revenue, 0),
+    isHybrid: hasVenue && hasStream,
+    eventType: hasVenue && hasStream ? "hybrid" : hasVenue ? "venue" : "streaming",
+  };
+}
+
+const publicEventInclude = {
+  creator: { include: { profile: { select: { fullName: true, creatorName: true, avatarUrl: true } } } },
+  tickets: {
+    where: { status: { in: ["ACTIVE", "SOLD_OUT"] } },
+    orderBy: [{ price: "asc" }, { createdAt: "asc" }],
+  },
+};
+
+async function findPublicEvent(eventId) {
+  return prisma.creatorEvent.findFirst({
+    where: {
+      id: eventId,
+      isPrivate: false,
+      status: { in: ["SCHEDULED", "LIVE", "ENDED"] },
+    },
+    include: publicEventInclude,
+  });
+}
+
+// GET /api/tickets - public ticketed events for the landing page
+router.get(
+  "/tickets",
+  asyncHandler(async (req, res) => {
+    const events = await prisma.creatorEvent.findMany({
+      where: {
+        isPrivate: false,
+        status: { in: ["SCHEDULED", "LIVE", "ENDED"] },
+        tickets: { some: { status: { in: ["ACTIVE", "SOLD_OUT"] } } },
+      },
+      orderBy: [{ scheduledAt: "asc" }, { createdAt: "desc" }],
+      include: publicEventInclude,
+    });
+
+    const grouped = events.map(serializePublicTicketEvent);
+    res.json({ events: grouped, total: grouped.length });
+  })
+);
+
+// GET /api/tickets/:eventId - public ticket event details for the landing page
+router.get(
+  "/tickets/:eventId(event_[^/]+)",
+  optionalAuth,
+  asyncHandler(async (req, res) => {
+    const event = await findPublicEvent(req.params.eventId);
+    if (!event) throw new HttpError(404, "Event not found");
+
+    res.json({ event: serializePublicTicketEvent(event) });
+  })
+);
+
+const publicCheckoutSchema = z.object({
+  ticketId: z.string().min(1),
+  buyerName: z.string().optional(),
+  buyerEmail: z.string().email().optional(),
+  buyerPhone: z.string().optional().nullable(),
+  quantity: z.number().int().min(1).default(1),
+});
+
+// POST /api/tickets/:eventId - public checkout for a ticket belonging to this event
+router.post(
+  "/tickets/:eventId(event_[^/]+)",
+  optionalAuth,
+  asyncHandler(async (req, res) => {
+    const { ticketId, buyerName, buyerEmail, buyerPhone, quantity } = publicCheckoutSchema.parse(req.body);
+    const event = await findPublicEvent(req.params.eventId);
+    if (!event) throw new HttpError(404, "Event not found");
+
+    const ticket = event.tickets.find((entry) => entry.id === ticketId);
+    if (!ticket) throw new HttpError(404, "Ticket type not found for this event");
+
+    const remaining = Math.max((ticket.quantity || 0) - (ticket.soldCount || 0), 0);
+    if (remaining <= 0) throw new HttpError(409, "Ticket is sold out");
+    if (quantity > remaining) throw new HttpError(400, "Requested quantity exceeds available tickets");
+
+    const isStreamTicket = String(ticket.access || "STREAM").toUpperCase() !== "VENUE";
+    const sessionEmail = req.user?.email?.trim().toLowerCase() || "";
+    const email = isStreamTicket ? sessionEmail : (buyerEmail || sessionEmail).trim().toLowerCase();
+
+    if (isStreamTicket && !sessionEmail) {
+      throw new HttpError(401, "You must be signed in to purchase streaming access.");
+    }
+    if (!email) throw new HttpError(400, "Email is required");
+
+    const name = (isStreamTicket ? req.user?.fullName : buyerName || req.user?.fullName)?.trim() || email.split("@")[0];
+    const amount = Math.max(Math.round(ticket.price || 0), 0) * quantity;
+    const reference = dropid("txn");
+
+    const purchase = await prisma.creatorEventTicketPurchase.create({
+      data: {
+        id: dropid("pur"),
+        ticketId: ticket.id,
+        buyerName: name,
+        buyerEmail: email,
+        buyerPhone: buyerPhone?.trim() || null,
+        quantity,
+        amount,
+        transactionId: reference,
+        ticketCode: `PENDING-${reference}`,
+        status: "PENDING",
+      },
+    });
+
+    if (amount === 0) {
+      const completed = await completeTicketPurchase(purchase.id);
+      return res.json({
+        message: "Ticket reserved",
+        payment: { type: "free", reference },
+        purchase: completed,
+      });
+    }
+
+    const payment = await paystack.initializeTransaction({
+      email,
+      amountKobo: amount * 100,
+      reference,
+      callbackUrl: `${process.env.APP_BASE_URL}/tickets/${encodeURIComponent(event.id)}?reference=${encodeURIComponent(reference)}&ticketId=${encodeURIComponent(ticket.id)}`,
+      metadata: {
+        type: "ticket",
+        eventId: event.id,
+        ticketId: ticket.id,
+        purchaseId: purchase.id,
+        quantity,
+        buyerName: name,
+        buyerEmail: email,
+      },
+    });
+
+    res.json({
+      message: "Payment initialized",
+      payment,
+      purchase: { id: purchase.id, reference, amount, quantity },
+      event: serializePublicTicketEvent(event),
+    });
+  })
+);
 
 const createTicketSchema = z.object({
   ticketType: z.string().min(1),

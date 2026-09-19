@@ -172,7 +172,7 @@ router.post(
   asyncHandler(async (req, res) => {
     if (!req.file) throw new HttpError(400, "No file uploaded. Please provide a file in the 'file' field.");
     if (!req.file.mimetype.startsWith("image/")) throw new HttpError(400, "File must be an image");
-    const result = await dropaphi.uploadFile({ name: req.file.originalname, type: req.file.mimetype, base64Data: req.file.buffer.toString("base64"), folder: "avatars", visibility: "PUBLIC" });
+    const result = await dropaphi.uploadFile({ name: req.file.originalname, type: req.file.mimetype, base64Data: req.file.buffer.toString("base64"), visibility: "PUBLIC" });
     const url = result.url || result.data?.url;
     if (!url) throw new HttpError(502, "Upload succeeded but no avatar URL was returned");
     const profile = await prisma.profile.update({ where: { id: req.user.id }, data: { avatarUrl: url } });
