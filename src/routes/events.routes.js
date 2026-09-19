@@ -115,6 +115,7 @@ router.post(
         id: dropid("evt"),
         creatorId: req.creator.id,
         ...data,
+        thumbnailUrl: data.thumbnailUrl || req.user.avatarUrl || undefined,
         status: "DRAFT",
       },
     });
@@ -127,6 +128,15 @@ const updateEventSchema = createEventSchema.partial().extend({
   status: z.enum(["DRAFT", "SCHEDULED", "LIVE", "PAUSED", "ENDED", "CANCELLED"]).optional(),
 });
 
+function validateScheduledEvent(data, existing) {
+  const status = data.status || existing?.status;
+  const scheduledAt = data.scheduledAt || existing?.scheduledAt;
+
+  if (status === "SCHEDULED" && !scheduledAt) {
+    throw new HttpError(400, "A scheduled date is required before publishing an event");
+  }
+}
+
 // PUT /api/events/:id — owning creator only
 router.put(
   "/:id",
@@ -138,7 +148,14 @@ router.put(
     if (existing.creatorId !== req.creator.id) throw new HttpError(403, "You don't own this event");
 
     const data = updateEventSchema.parse(req.body);
-    const event = await prisma.creatorEvent.update({ where: { id: req.params.id }, data });
+    validateScheduledEvent(data, existing);
+    const event = await prisma.creatorEvent.update({
+      where: { id: req.params.id },
+      data: {
+        ...data,
+        ...(data.thumbnailUrl || existing.thumbnailUrl ? {} : { thumbnailUrl: req.user.avatarUrl || undefined }),
+      },
+    });
     res.json({ event });
   })
 );

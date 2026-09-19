@@ -33,6 +33,46 @@ router.post(
   })
 );
 
+const listCreatorsSchema = z.object({
+  search: z.string().optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(50).default(20),
+});
+
+// GET /api/creators — public creator discovery list
+router.get(
+  "/",
+  asyncHandler(async (req, res) => {
+    const { search, page, pageSize } = listCreatorsSchema.parse(req.query);
+    const where = search
+      ? {
+          profile: {
+            OR: [
+              { creatorName: { contains: search, mode: "insensitive" } },
+              { fullName: { contains: search, mode: "insensitive" } },
+            ],
+          },
+        }
+      : {};
+
+    const [creators, total] = await Promise.all([
+      prisma.creator.findMany({
+        where,
+        orderBy: { followersCount: "desc" },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+        include: {
+          profile: { select: { id: true, fullName: true, creatorName: true, avatarUrl: true } },
+          _count: { select: { videos: true, events: true } },
+        },
+      }),
+      prisma.creator.count({ where }),
+    ]);
+
+    res.json({ creators, page, pageSize, total, totalPages: Math.ceil(total / pageSize) });
+  })
+);
+
 // GET /api/creators/:id — public creator profile + basic stats
 router.get(
   "/:id",

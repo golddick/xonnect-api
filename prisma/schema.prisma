@@ -111,6 +111,8 @@ model Profile {
   videoComments  CreatorVideoComment[] @relation("CreatorVideoCommenter")
   communityMemberships CommunityMember[]
   communityPosts       CommunityPost[]
+  notifications Notification[]
+  supportMessages SupportMessage[]
 
   addressFull    String? @map("address_full")
   addressLat     Float?  @map("address_lat")
@@ -133,6 +135,33 @@ model Profile {
   videoPurchases CreatorVideoPurchase[]
 
   @@map("profiles")
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  profileId String   @map("profile_id")
+  profile   Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  type      String
+  title     String
+  subtitle  String?
+  avatar    String?
+  readAt    DateTime? @map("read_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([profileId, createdAt])
+  @@map("notifications")
+}
+
+model SupportMessage {
+  id        String   @id @default(cuid())
+  profileId String   @map("profile_id")
+  profile   Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  from      String
+  text      String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([profileId, createdAt])
+  @@map("support_messages")
 }
 
 model SuperAdminSetting {
@@ -219,6 +248,9 @@ model Creator {
   eventVenuePayout   Int @default(70) @map("event_venue_payout_percents")
   followersCount     Int @default(0) @map("followers_count")
   followingCount     Int @default(0) @map("following_count")
+  agreementAccepted  Boolean   @default(false) @map("agreement_accepted")
+  agreementSignature String?   @map("agreement_signature")
+  agreementAcceptedAt DateTime? @map("agreement_accepted_at")
 
   videos         CreatorVideo[]
   videoPurchases CreatorVideoPurchase[]

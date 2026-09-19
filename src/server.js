@@ -15,11 +15,22 @@ const ticketsRoutes = require("./routes/tickets.routes");
 const checkinRoutes = require("./routes/checkin.routes");
 const videosRoutes = require("./routes/videos.routes");
 const payoutsRoutes = require("./routes/payouts.routes");
+const creatorPayoutAccountsRoutes = require("./routes/creator-payout-accounts.routes");
+const creatorRoutes = require("./routes/creator.routes");
 const categoriesRoutes = require("./routes/categories.routes");
 const uploadsRoutes = require("./routes/uploads.routes");
 const paymentsRoutes = require("./routes/payments.routes");
 const livestreamRoutes = require("./routes/livestream.routes");
 const communityRoutes = require("./routes/community.routes");
+const superadminRoutes = require("./routes/superadmin.routes");
+const webhookRoutes = require("./routes/webhooks.routes");
+const chatRoutes = require("./routes/chat.routes");
+const notificationRoutes = require("./routes/notification.routes");
+const supportRoutes = require("./routes/support.routes");
+const tvRoutes = require("./routes/tv.routes");
+const tvWatchRoutes = require("./routes/tv-watch.routes");
+const locationRoutes = require("./routes/locations.routes");
+const creatorAgreementRoutes = require("./routes/creator-agreement.routes");
 
 const app = express();
 
@@ -30,8 +41,9 @@ app.use(morgan(process.env.NODE_ENV === "production" ? "combined" : "dev"));
 // x-paystack-signature header, so it's mounted with express.raw() BEFORE the
 // global express.json() parser below. Every other route gets normal JSON parsing.
 app.use("/api/payments/paystack/webhook", express.raw({ type: "*/*" }));
+app.use("/api/webhooks/livekit", express.text({ type: "*/*" }));
 app.use((req, res, next) => {
-  if (req.originalUrl === "/api/payments/paystack/webhook") return next();
+  if (req.originalUrl === "/api/payments/paystack/webhook" || req.originalUrl === "/api/webhooks/livekit") return next();
   express.json({ limit: "5mb" })(req, res, next);
 });
 
@@ -60,10 +72,21 @@ app.use("/api", ticketsRoutes);
 app.use("/api/checkin", checkinRoutes);
 app.use("/api/videos", videosRoutes);
 app.use("/api/payouts", payoutsRoutes);
+app.use("/api/creator/settings/payout-accounts", creatorPayoutAccountsRoutes);
+app.use("/api/creator", creatorRoutes);
+app.use("/api/creator-agreement", creatorAgreementRoutes);
 app.use("/api/categories", categoriesRoutes);
 app.use("/api/uploads", uploadsRoutes);
 app.use("/api/payments", paymentsRoutes);
+app.use("/api/webhooks", webhookRoutes);
 app.use("/api/community", communityRoutes);
+app.use("/api/chat", chatRoutes);
+app.use("/api/notifications", notificationRoutes);
+app.use("/api/support", supportRoutes);
+app.use("/api/tv", tvRoutes);
+app.use("/api/tv/watch", tvWatchRoutes);
+app.use("/api/superadmin", superadminRoutes);
+app.use("/api/locations", locationRoutes);
 
 app.use(notFound);
 app.use(errorHandler);

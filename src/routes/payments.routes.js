@@ -6,6 +6,7 @@ const paystack = require("../lib/paystack");
 const dropaphi = require("../lib/dropaphi");
 const ticketsRoutes = require("./tickets.routes");
 const videosRoutes = require("./videos.routes");
+const { ticketReceiptTemplate, creatorPlatformNotificationTemplate } = require("../utils/email-templates");
 
 const router = express.Router();
 
@@ -41,14 +42,20 @@ router.post(
       return res.status(200).json({ received: true, ignored: "not successful on verify" });
     }
 
-    const metadata = verified.metadata || event.data.metadata || {};
+    const metadata = {
+      ...(event.data.metadata || {}),
+      ...(verified.metadata || {}),
+    };
 
     try {
-      if (metadata.type === "ticket") {
+      const purchaseKind = metadata.purchaseKind || metadata.type;
+      if (purchaseKind === "video" || metadata.videoPurchaseId || metadata.creatorVideoId) {
+        const purchaseId = metadata.videoPurchaseId || metadata.purchaseId;
+        const purchase = await videosRoutes.completeVideoPurchase(purchaseId);
+        await sendVideoReceipt(purchase).catch((error) => console.error("Video receipt failed:", error));
+      } else if (purchaseKind === "ticket" || metadata.purchaseId || metadata.ticketId) {
         const purchase = await ticketsRoutes.completeTicketPurchase(metadata.purchaseId);
-        await sendTicketReceipt(purchase).catch(() => {});
-      } else if (metadata.type === "video") {
-        await videosRoutes.completeVideoPurchase(metadata.purchaseId);
+        await sendTicketReceipt(purchase).catch((error) => console.error("Ticket receipt failed:", error));
       } else {
         console.warn("Paystack webhook: unknown metadata.type", metadata);
       }
@@ -90,11 +97,44 @@ router.get(
 );
 
 async function sendTicketReceipt(purchase) {
+  const ticket = await prisma.creatorEventTicket.findUnique({
+    where: { id: purchase.ticketId },
+    include: { event: true },
+  });
+
   await dropaphi.sendEmail({
     to: purchase.buyerEmail,
-    subject: "Your Xonnect ticket",
-    html: `<p>Hi ${purchase.buyerName},</p><p>Your ticket is confirmed. Your ticket code is <b>${purchase.ticketCode}</b>. Show this at the gate to check in.</p>`,
+    subject: `Your Xonnect ticket for ${ticket?.event?.title || "your event"}`,
+    html: ticketReceiptTemplate({
+      fullName: purchase.buyerName,
+      eventTitle: ticket?.event?.title || "your event",
+      ticketType: ticket?.ticketType || "Ticket",
+      ticketCode: purchase.ticketCode,
+      quantity: purchase.quantity,
+      amount: `${purchase.currency || "NGN"} ${purchase.amount.toLocaleString()}`,
+      watchUrl: `${process.env.APP_BASE_URL || "http://localhost:3000"}/tv/watch/event/${ticket?.eventId || ""}`,
+    }),
     text: `Your ticket code is ${purchase.ticketCode}`,
+    fromName: "Xonnect",
+  });
+}
+
+async function sendVideoReceipt(purchase) {
+  const video = await prisma.creatorVideo.findUnique({
+    where: { id: purchase.creatorVideoId },
+    select: { title: true, folderId: true },
+  });
+  if (!purchase.buyerEmail || !video) return;
+
+  const watchUrl = `${process.env.APP_BASE_URL || "http://localhost:3000"}/tv/watch/folder/${video.folderId}?part=${video.id}&accessCode=${purchase.accessCode || ""}`;
+  await dropaphi.sendEmail({
+    to: purchase.buyerEmail,
+    subject: `Your access for ${video.title} is ready`,
+    html: creatorPlatformNotificationTemplate({
+      fullName: purchase.buyerName || purchase.buyerEmail.split("@")[0],
+      message: `Thank you for your purchase.\n\nAccess code: ${purchase.accessCode || ""}\n\nWatch here: ${watchUrl}`,
+    }),
+    text: `Your access code is ${purchase.accessCode || ""}. Watch here: ${watchUrl}`,
     fromName: "Xonnect",
   });
 }

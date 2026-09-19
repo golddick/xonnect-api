@@ -73,4 +73,11 @@ const requireCreator = (req, res, next) => {
   next();
 };
 
-module.exports = { asyncHandler, requireAuth, optionalAuth, requireRole, requireCreator };
+const requireAdmin = (req, res, next) => {
+  if (!req.user || !["ADMIN", "SUPERADMIN", "admin", "superadmin"].includes(req.user.role)) {
+    return res.status(403).json({ error: "Admin access required", message: "Admin access required" });
+  }
+  next();
+};
+
+module.exports = { asyncHandler, requireAuth, optionalAuth, requireRole, requireCreator, requireAdmin };

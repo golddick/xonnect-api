@@ -86,7 +86,7 @@ router.post(
 
 const loginSchema = z.object({
   email: z.string().email(),
-  password: z.string().min(1),
+  password: z.string().min(1).optional(),
 });
 
 // POST /api/auth/login
@@ -100,6 +100,15 @@ router.post(
       where: { email: normalizedEmail },
       include: { credential: true, creator: true },
     });
+
+    if (!password) {
+      return res.json({
+        exists: Boolean(profile),
+        hasPassword: Boolean(profile?.credential),
+        emailVerified: Boolean(profile?.emailVerified),
+        fullName: profile?.fullName ?? null,
+      });
+    }
 
     if (!profile || !profile.credential) {
       throw new HttpError(401, "Invalid email or password");
@@ -115,6 +124,77 @@ router.post(
 
     const token = signAuthToken({ sub: profile.id, email: profile.email });
     res.json({ token, user: toPublicProfile(updatedProfile) });
+  })
+);
+
+router.post(
+  "/superadmin/login",
+  asyncHandler(async (req, res) => {
+    const { email, password } = z.object({ email: z.string().email(), password: z.string().min(1) }).parse(req.body);
+    const profile = await prisma.profile.findUnique({ where: { email: email.toLowerCase().trim() }, include: { credential: true } });
+    if (!profile || !["ADMIN", "SUPERADMIN"].includes(profile.role)) throw new HttpError(401, "Invalid email or password");
+    if (!profile.credential || !await bcrypt.compare(password, profile.credential.passwordHash)) throw new HttpError(401, "Invalid email or password");
+    await prisma.profile.update({ where: { id: profile.id }, data: { lastLogin: new Date() } });
+    const token = signAuthToken({ sub: profile.id, email: profile.email });
+    res.json({ ok: true, role: profile.role, token, loginToken: token });
+  })
+);
+
+const otpSendSchema = z.object({ email: z.string().email() });
+
+// POST /api/auth/otp/send
+router.post(
+  "/otp/send",
+  asyncHandler(async (req, res) => {
+    const { email } = otpSendSchema.parse(req.body);
+    const normalizedEmail = email.toLowerCase().trim();
+    const profile = await prisma.profile.findUnique({ where: { email: normalizedEmail } });
+
+    if (!profile) throw new HttpError(404, "Account not found");
+
+    const result = await dropaphi.sendOtp(normalizedEmail, {
+      length: 6,
+      expiry: 10,
+      brandName: process.env.DROPAPHI_FROM_NAME || "Xonnect",
+    });
+
+    if (result?.ok === false) {
+      throw new HttpError(result.cooldown ? 429 : 500, result.message || "Failed to send OTP");
+    }
+
+    res.json({ ok: true });
+  })
+);
+
+const otpVerifySchema = z.object({
+  email: z.string().email(),
+  code: z.string().trim().min(1),
+});
+
+// POST /api/auth/otp/verify
+router.post(
+  "/otp/verify",
+  asyncHandler(async (req, res) => {
+    const { email, code } = otpVerifySchema.parse(req.body);
+    const normalizedEmail = email.toLowerCase().trim();
+    const profile = await prisma.profile.findUnique({
+      where: { email: normalizedEmail },
+      include: { creator: true },
+    });
+
+    if (!profile) throw new HttpError(404, "Account not found");
+
+    const valid = await dropaphi.verifyOtp(normalizedEmail, code);
+    if (!valid) throw new HttpError(401, "Invalid OTP");
+
+    const updatedProfile = await prisma.profile.update({
+      where: { id: profile.id },
+      data: { emailVerified: true, lastLogin: new Date() },
+      include: { creator: true },
+    });
+
+    const token = signAuthToken({ sub: updatedProfile.id, email: updatedProfile.email });
+    res.json({ ok: true, token, loginToken: token, user: toPublicProfile(updatedProfile) });
   })
 );
 
@@ -162,6 +242,24 @@ router.post(
       prisma.profile.update({ where: { email: normalizedEmail }, data: { hasPassword: true } }),
     ]);
 
+    res.json({ ok: true });
+  })
+);
+
+router.post(
+  "/password/set",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const { password } = z.object({ password: z.string().min(8) }).parse(req.body);
+    const passwordHash = await bcrypt.hash(password, 10);
+    await prisma.$transaction([
+      prisma.authCredential.upsert({
+        where: { email: req.user.email },
+        update: { passwordHash },
+        create: { email: req.user.email, passwordHash },
+      }),
+      prisma.profile.update({ where: { id: req.user.id }, data: { hasPassword: true } }),
+    ]);
     res.json({ ok: true });
   })
 );

@@ -26,6 +26,8 @@
     "jsonwebtoken": "^9.0.2",
     "livekit-server-sdk": "^2.9.2",
     "morgan": "^1.10.0",
+    "multer": "^2.4.0",
+    "qrcode": "^1.5.4",
     "zod": "^3.23.8"
   },
   "devDependencies": {

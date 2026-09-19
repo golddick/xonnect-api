@@ -10,8 +10,7 @@ const uploadSchema = z.object({
   name: z.string().min(1),
   type: z.string().min(1), // MIME type, e.g. "image/jpeg"
   data: z.string().min(1), // base64-encoded file content (no data: prefix)
-  folder: z.enum(["avatars", "event-thumbnails", "video-thumbnails", "videos", "receipts"]),
-  visibility: z.enum(["PUBLIC", "PRIVATE"]).optional(),
+  visibility: z.enum(["PUBLIC", ]).optional(),
 });
 
 // POST /api/uploads — used by the mobile app for avatar/thumbnail/video uploads.
@@ -21,11 +20,11 @@ router.post(
   "/",
   requireAuth,
   asyncHandler(async (req, res) => {
-    const { name, type, data, folder, visibility } = uploadSchema.parse(req.body);
+    const { name, type, data, visibility } = uploadSchema.parse(req.body);
 
     let result;
     try {
-      result = await dropaphi.uploadFile({ name, type, base64Data: data, folder, visibility });
+      result = await dropaphi.uploadFile({ name, type, base64Data: data, });
     } catch (err) {
       throw new HttpError(502, "File upload failed, please try again");
     }

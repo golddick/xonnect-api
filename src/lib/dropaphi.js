@@ -9,6 +9,7 @@ const client = axios.create({
   timeout: 15000,
 });
 
+
 /**
  * Sends a numeric OTP to `email`. DropAphi stores and manages the code server-side —
  * we never see or store the raw code ourselves, only whether verifyOtp() later succeeds.
@@ -50,12 +51,12 @@ async function sendEmail({ to, subject, html, text, template, templateData, from
  * Uploads a file (base64-encoded) to DropAphi's file storage and returns its public URL.
  * Use for avatars, event/video thumbnails, and payout receipts.
  */
-async function uploadFile({ name, type, base64Data, folder, visibility = "PUBLIC" }) {
+async function uploadFile({ name, type, base64Data, visibility = "PUBLIC" }) {
   const { data } = await client.post("/files/upload", {
     name,
     type,
     data: base64Data,
-    metadata: { visibility, folder },
+    metadata: { visibilit },
   });
   return data; // expected to include a `url` field per DropAphi's response
 }
